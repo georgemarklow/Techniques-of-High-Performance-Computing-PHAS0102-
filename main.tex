@@ -1,44 +1,687 @@
-\documentclass[12pt]{article}
-\usepackage[a4paper,margin=1in]{geometry}
-\usepackage{lmodern}
-\usepackage[T1]{fontenc}
-\usepackage{hyperref}
+\documentclass{book}
+\usepackage{listings}
+\usepackage{xcolor}
 
-\title{Techniques of High-Performance Computing (PHAS0102)\\Indicative Syllabus}
-\author{George Marklow}
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{brown},
+  frame=single,
+  showstringspaces=false,
+  columns=fullflexible,
+  aboveskip=2em,
+  belowskip=2em
+}
+
+\lstset{style=mystyle}
+
+
+\title{Techniques of High-Performance Computing}
+\author{George Marklow Notes}
 \date{}
 
 \begin{document}
 \maketitle
 
-\section{Part 1: HPC Technologies}
-\subsection{Design of HPC Systems}
-\subsection{Parallelization Technologies}
-\subsection{Python for High-Performance Computing}
+\part{High-Performance Computing with Python}
 
-\section{Part 2: An Introduction to Many-Core Technologies via OpenCL}
-\subsection{Basics of Many-Core Processing}
-\subsection{Differences Between CPUs and GPUs}
-\subsection{The OpenCL Programming Model}
-\subsection{Design of OpenCL Kernels}
+\chapter{Introduction to HPC}
 
-\section{Part 3: Sparse Matrices and Linear Algebra}
-\subsection{Data Storage Schemes for Sparse Matrices}
-\subsection{Sparse Matrix--Vector Products}
-\subsection{Sparse LU Decomposition}
-\subsection{Iterative Solvers}
-\subsection{Efficient Implementation of Sparse Matrix Operations in OpenCL}
+\section{Floating Point Numbers}
+Most applications in High-Performance Computing (HPC) rely on floating-point operations—e.g., \(1.2 + 3.7\) or \(2.8 \times 5.7\). These are defined by the IEEE 754 standard. We focus on two common formats: single-precision and double-precision.
 
-\section{Part 4: Many Particle Simulations}
-\subsection{Basis of Particle Simulations}
-\subsection{Acceleration of Particle Simulations}
-\subsection{Implementation in OpenCL}
+A simplified model of floating-point numbers is:
+\[
+\mathcal{F} = \left\{\,(-1)^s \cdot b^e \cdot \frac{m}{b^{p-1}} \;\middle|\; s\in\{0,1\},\; e_{\min}\le e\le e_{\max},\; b^{p-1}\le m\le b^p-1\right\}.
+\]
+Here:
+\begin{itemize}
+  \item \(b\) is the base (typically \(2\)),
+  \item \(m\) is the mantissa,
+  \item \(e\) is the exponent,
+  \item \(p\) determines the precision.
+\end{itemize}
 
-\section{Part 5: Spectral Methods}
-\subsection{Basic Ideas of Spectral Methods (Fourier and Chebyshev-Type Methods)}
-\subsection{Spectral Differentiation Matrices}
-\subsection{Implementing Spectral Methods to Solve Wave Problems}
+Floating-point numbers are not uniformly spaced. For example, between 1 and 2:
+\[
+\frac{m}{b^{p-1}} = 1,\; 1 + 2^{1-p},\; 1 + 2\times 2^{1-p},\;\dots,\; 2 - 2^{1-p}.
+\]
+To span the range \([2,4)\), these values are scaled by 2, and so on. Thus, spacing between representable numbers grows as values increase.
 
-\vfill
-\noindent\textit{Source:} UCL Module Catalogue --- \emph{Techniques of High-Performance Computing (PHAS0102)}. 
+Important formats:
+\begin{itemize}
+  \item \textbf{IEEE double precision}: \(e_{\min} = -1022\), \(e_{\max} = 1023\), \(p = 53\) —~approx.~16 decimal digits of precision.
+  \item \textbf{IEEE single precision}: \(e_{\min} = -126\), \(e_{\max} = 127\), \(p = 24\) —~approx.~8 decimal digits of precision.
+\end{itemize}
+
+A key constant is the relative machine epsilon:
+\[
+\varepsilon_{\text{rel}} = 2^{1-p}.
+\]
+\begin{itemize}
+  \item Double precision: \(\varepsilon_{\text{rel}} \approx 2.2\times10^{-16}.\)
+  \item Single precision: \(\varepsilon_{\text{rel}} \approx 1.2\times10^{-7}.\)
+\end{itemize}
+
+\section{How Many Flops/s Do I Have?}
+A central metric in HPC is the number of floating-point operations per second (FLOP/s). Examples of peak performance:
+
+\begin{tabular}{l r l}
+\textbf{Device} & \textbf{Peak (GFlop/s)} & \textbf{Notes} \\ \hline
+Intel Xeon Platinum 8280M (28 cores) & 1,612.8 & High-end workstation CPU \\
+Raspberry Pi 4 Model B & 24 & Inexpensive ARM CPU \\
+Nvidia RTX 4090 GPU & 73,000 & Single-precision peak \\
+PS5 GPU & 10,280 & GPU in PlayStation 5 \\
+XBOX Series X GPU & 12,500 & GPU in XBOX Series X \\
+\end{tabular}
+
+Here, 1 GFlop/s = \(10^9\) floating-point ops/sec. GPUs, optimized for parallelism, often achieve far higher peak Flops/s—especially in single precision. Some specialized GPUs extend strong performance to double precision.
+
+\section{The Top 500}
+The **Top 500** list chronicles the most powerful supercomputers worldwide. The current leader, Frontier, reaches a peak of 1.7 EFlop/s (1 EFlop/s = \(10^6\) TFlop/s). The list also illustrates performance trends over time. \href{https://www.top500.org}{top500.org}
+
+\section{A Biased Definition of High-Performance Computing}
+A telling thought: a modern PS5 would have ranked as the world’s fastest supercomputer just 20 years ago. This highlights that HPC is not defined solely by size.
+
+\begin{quotation}
+High-Performance Computing is about developing tools, algorithms, and applications that make optimal use of a given hardware environment.
+\end{quotation}
+
+Thus, HPC can apply even to a Raspberry Pi or mobile phone. The key lies in scalable, efficient use of hardware—regardless of scale. This course explores techniques to reach high performance across both CPUs and GPUs.
+
+\chapter{Languages for High-Performance Computing}
+
+\section*{Overview}
+There is a rich ecosystem of programming languages used in High-Performance Computing (HPC). This section briefly reviews some commonly used languages and their suitability for HPC applications.
+
+\section{Fortran}
+\textbf{Fortran} is one of the earliest languages in scientific computing, originating in the 1950s. The most recent standard is Fortran 2018. Though still in active use—especially for legacy code—it's not generally recommended for new HPC projects.
+
+\section{C/C++}
+\textbf{C++} is the dominant language in scientific computing today. It is mature, supported by a vast ecosystem, and frameworks for modern heterogeneous compute (e.g., CUDA, SYCL) are primarily targeted at C++. \textbf{C} is also used, particularly for library development. Overall, C++ is the best choice for most new HPC projects.
+
+\section{Julia}
+\textbf{Julia} is a relatively new language with a rapidly growing user community. Although high-level, Julia has been used successfully for simulations at the petaflop scale. It is a strong candidate for new HPC applications.
+
+\section{Python}
+\textbf{Python} is the most widely adopted high-productivity language in scientific computing. Its simple syntax and broad library ecosystem make it great for building scalable applications quickly. By itself, Python is not HPC-capable in the same way Julia is—it lacks native support for low-level data structures and HPC features.
+
+However, with libraries like NumPy, Python can efficiently perform array-oriented operations. Today, it is the language of choice for machine learning and many demanding HPC applications. This course focuses on HPC using Python and explores how to write high-performance Python code.
+
+\section{Matlab}
+\textbf{Matlab} is another long-standing high-productivity language, widely used for rapid numerical prototyping prior to the rise of Python. It remains prevalent in numerical computing due to its rich toolboxes and extensive legacy codebase. While it has favorable licensing in academic settings, Matlab is expensive for commercial use; Python is often preferable for new projects.
+
+\section{Rust}
+\textbf{Rust} is a relatively recent addition to the programming language landscape, with its first stable release in 2015. It is quickly gaining popularity—especially as a competitor to C++—due to its powerful ownership and memory-safety model, which catches many bugs at compile time that might otherwise cause runtime crashes in C++. Rust's HPC ecosystem is still developing, so most numerical libraries remain in early stages. Over time, Rust may mature into a strong contender for HPC applications.
+
+\section{Other Languages}
+Other modern languages such as Go, Java, and C\# also exist. However:
+\begin{itemize}
+  \item Java and C\# are primarily business-oriented and not designed for intensive HPC tasks.
+  \item Go may be applicable in certain HPC-style scenarios, but that is not its main focus.
+\end{itemize}
+
+\chapter{Python HPC Tools}
+
+\section*{Overview}
+Python provides a rich ecosystem for scientific computing. This section presents a concise overview of key libraries and tools used in high-performance Python workflows.
+
+\section{Jupyter Notebook}
+\textbf{Jupyter Notebook} is a cornerstone of the Python ecosystem. It enables the creation of notebook documents that combine executable code, descriptive text, figures, and formulas within a web browser. These notebooks can be used both through the classic Jupyter Notebook interface and the newer JupyterLab environment.
+
+\section{NumPy and SciPy}
+\textbf{NumPy} offers a fast, efficient array data type and a wide range of operations, including comprehensive support for multi-dimensional arrays and linear algebra routines.  
+\textbf{SciPy} builds upon NumPy by providing higher-level functionality such as graph algorithms, optimization, sparse matrix support, ODE solvers, and more, making it a foundation of scientific Python.
+
+\section{Numba}
+\textbf{Numba} is a just-in-time (JIT) compiler for Python, designed to speed up performance-critical loops by translating Python functions to optimized machine code. It allows for simple parallelization on CPUs and even cross-compilation for GPUs, making it a key tool for high-performance Python programming on both CPU and GPU platforms.
+
+\section{Matplotlib}
+\textbf{Matplotlib} is the primary plotting library for 2D visualizations in Python. While it supports easy creation of basic plots, it also offers a deep and powerful API for highly customized visualizations. Several other libraries simplify plotting by building on top of Matplotlib for specialized tasks.
+
+\section{Dask}
+\textbf{Dask} enables scalable parallel computing in Python. It represents computations as task graphs which can be executed efficiently across environments ranging from a single desktop to large HPC clusters with thousands of nodes.
+
+\section{Pandas}
+\textbf{Pandas} is the leading data analysis library in Python, offering high-performance, easy-to-use data structures and tools for handling large datasets.
+
+\section{TensorFlow, PyTorch, and scikit-learn}
+Python is the preferred environment for machine learning. Key libraries include \textbf{TensorFlow}, \textbf{PyTorch}, and \textbf{scikit-learn}, which provide comprehensive tools for building and deploying ML models.
+
+\section{Other Tools}
+Python’s HPC ecosystem includes additional powerful tools such as \textbf{mpi4py} for MPI-based distributed computing, \textbf{petsc4py} for parallel sparse matrix operations using PETSc, and \textbf{FEniCS} for PDE solutions via finite element methods. These tools, among many others, support a variety of specialized scientific computing applications.
+
+\chapter{Memory layout and Numpy arrays}
+
+\section*{Overview}
+This document explores how memory layout impacts performance, and how \texttt{NumPy} accommodates efficient array storage and computation.
+
+\section{Memory Layouts}
+Memory is a linear sequence of bytes. Efficient computation depends on accessing data that's spatially nearby due to CPU caching. Standard Python lists don't guarantee this locality—they may scatter elements across memory—making them suboptimal for numerical operations.
+
+For a 2×2 matrix:
+\[
+A = \begin{bmatrix}
+1 & 2\\
+3 & 4
+\end{bmatrix}
+\]
+Two primary layouts exist:
+\begin{itemize}
+  \item \textbf{C-style (row-major)}: memory order is \(\{1,2,3,4\}\)
+  \item \textbf{Fortran-style (column-major)}: memory order is \(\{1,3,2,4\}\)
+\end{itemize}
+Choosing the appropriate layout matters for performance and compatibility.
+
+\section{NumPy to the Rescue}
+\texttt{NumPy} provides an array type storing data in contiguous memory with selectable memory layout. It handles operations with arrays of differing layout orders correctly, though mismatched layouts may introduce inefficiencies. NumPy’s array model underlies Python's scientific computing success.
+
+\section{BLAS and LAPACK}
+\textbf{BLAS} (Basic Linear Algebra Subprograms) define standard routines for efficient numerical linear algebra:
+\begin{itemize}
+  \item \textbf{Level 1}: \(O(n)\) operations (vector addition, scalar operations)
+  \item \textbf{Level 2}: \(O(n^2)\) operations (matrix-vector products)
+  \item \textbf{Level 3}: \(O(n^3)\) operations—most notably matrix-matrix multiplication
+\end{itemize}
+Optimized implementations (e.g., Intel MKL, OpenBLAS, BLIS) exploit caching, SIMD, and multicore features.
+
+\textbf{LAPACK} builds higher-level routines—like solving linear systems and eigenproblems—relying on BLAS, particularly Level 3, yielding high computational intensity relative to memory access.
+
+\section{Getting Started with NumPy}
+Here's how to begin with NumPy arrays and memory-aware operations:
+
+\begin{lstlisting}
+import numpy as np
+
+# Create arrays
+a = np.array([3.5, 4, 18.1], dtype='float64')
+a_random = np.random.rand(10)
+a_ones = np.ones((10, 10), dtype='float64')
+a_zeros = np.zeros((10, 10, 10), dtype='complex128')
+a_empty = np.empty(50, dtype='byte')
+a_range = np.arange(50)
+
+# Inspect shapes
+print(a_range.shape)
+print(a_zeros.shape)
+
+# Access elements
+print(a_random[0], a_random[:2], a_random[-2:])
+print(a_ones[:3, 2:5], a_zeros[3, 2, 1])
+
+# Assign values
+a_ones[3, 3] = 10
+a_ones[:, 4] = np.arange(10)
+a_ones[8] = 10
+print(a_ones)
+\end{lstlisting}
+
+With \texttt{matplotlib} and NumPy, visualizations are straightforward:
+
+\begin{lstlisting}
+%matplotlib inline
+from matplotlib import pyplot as plt
+
+x = np.linspace(-10, 10, 10000)
+y = np.exp(-x**2)
+plt.plot(x, y)
+plt.xlabel('x')
+plt.ylabel(r'$\exp(-x^2)$')
+plt.show()
+\end{lstlisting}
+
+NumPy supports efficient matrix operations and system solves:
+
+\begin{lstlisting}
+A = np.random.randn(100, 100)
+B = np.random.randn(100, 100)
+C = A @ B  # Matrix-matrix product
+
+# Linear system
+A = np.random.rand(1000, 1000)
+b = np.random.rand(1000)
+x = np.linalg.solve(A, b)
+
+# Relative residual
+residual = np.linalg.norm(b - A @ x) / (np.linalg.norm(A) * np.linalg.norm(x))
+print(residual)
+\end{lstlisting}
+
+The low residual demonstrates near-machine-precision solver accuracy.
+
+\section*{Further Reading}
+Refer to the official \href{https://numpy.org/user/}{NumPy user guide} for deeper exploration.
+
+\chapter{Parallel Computing Principles in Python}
+
+\section*{Overview}
+Modern computing systems are intrinsically parallel: they consist of multiple CPU cores, vector units (SIMD), and even GPU accelerators. In distributed environments, clusters further extend this parallelism. This chapter examines different layers of parallel execution and demonstrates Python tools that enable efficient parallelism.
+
+\section{Vectorized vs. Loop Implementations}
+Consider the following Python code for array addition:
+
+\begin{lstlisting}
+import numpy as np
+
+n = 10**6
+a = np.random.randn(n)
+b = np.random.randn(n)
+c = np.empty(n, dtype='float64')
+
+for i in range(n):
+    c[i] = a[i] + b[i]
+\end{lstlisting}
+
+This verbose loop can be replaced by NumPy's vectorized operation:
+
+\begin{lstlisting}
+c = a + b
+\end{lstlisting}
+
+The vectorized form is significantly faster by leveraging low-level optimizations.
+
+\section{SIMD Acceleration}
+
+Almost all modern CPUs support SIMD (Single Instruction, Multiple Data) operations with vector registers that apply the same operation across multiple data elements in a single CPU cycle—even across double-precision floats.
+
+Implementations using AVX2 or AVX-512 can process 4–16 double-precision or 8–16 single-precision elements simultaneously, depending on the CPU architecture. Although powerful, AVX-512 doesn't always yield proportional speedups due to clock throttling and invocation overhead.
+
+While SIMD is not directly programmable in standard Python, scientific libraries often use it under the hood—e.g., NumPy (via tuned BLAS), NumExpr, and Numba's JIT compiler.
+
+\section{Multithreading for Loop-Level Parallelism}
+
+Vectorization helps within a core, but to utilize multiple cores, multithreading is needed. In Python, threads share memory but are constrained by the Global Interpreter Lock (GIL), which limits true parallel execution.
+
+\subsection{Threaded Loop Example (Ineffective Due to GIL)}
+
+\begin{lstlisting}
+import threading, multiprocessing
+import numpy as np
+
+def worker(arr1, arr2, arr3, chunk):
+    for i in chunk:
+        arr3[i] = arr1[i] + arr2[i]
+
+nthreads = multiprocessing.cpu_count()
+n = 10**6
+a = np.random.randn(n)
+b = np.random.randn(n)
+c = np.empty(n, dtype='float64')
+
+chunks = np.array_split(range(n), nthreads)
+threads = []
+for chunk in chunks:
+    t = threading.Thread(target=worker, args=(a, b, c, chunk))
+    threads.append(t)
+    t.start()
+for t in threads:
+    t.join()
+\end{lstlisting}
+
+Despite having multiple threads, Python's GIL permits only one thread in the interpreter at a time, limiting concurrent execution.
+
+\subsection{Parallel JIT with Numba (Bypassing GIL)}
+
+Numba's JIT compilation enables efficient multi-core execution without the GIL:
+
+\begin{lstlisting}
+import numba
+import numpy as np
+
+n = 10**6
+a = np.random.randn(n)
+b = np.random.randn(n)
+c = np.empty(n, dtype='float64')
+
+@numba.njit(parallel=True)
+def numba_fun(arr1, arr2, arr3):
+    for i in numba.prange(n):
+        arr3[i] = arr1[i] + arr2[i]
+
+numba_fun(a, b, c)
+\end{lstlisting}
+
+Here, `prange` parallelizes the loop across cores, and Numba-generated machine code avoids the GIL entirely.
+
+\subsection{Multiprocessing (Process-Based Parallelism)}
+
+To completely eliminate GIL constraints, Python's `multiprocessing` module uses separate processes, each with its own Python interpreter and memory:
+
+\begin{lstlisting}
+import multiprocessing, ctypes
+import numpy as np
+
+def worker(a_buf, b_buf, c_buf, chunk):
+    a = np.frombuffer(a_buf.get_obj())
+    b = np.frombuffer(b_buf.get_obj())
+    c = np.frombuffer(c_buf.get_obj())
+    for i in chunk:
+        c[i] = a[i] + b[i]
+
+n = 10**6
+nproc = multiprocessing.cpu_count()
+a = multiprocessing.Array(ctypes.c_double, n)
+b = multiprocessing.Array(ctypes.c_double, n)
+c = multiprocessing.Array(ctypes.c_double, n)
+
+# Initialize shared arrays with numpy
+np.frombuffer(a.get_obj())[:] = np.random.randn(n)
+np.frombuffer(b.get_obj())[:] = np.random.randn(n)
+
+chunks = np.array_split(range(n), nproc)
+procs = []
+for chunk in chunks:
+    p = multiprocessing.Process(target=worker, args=(a, b, c, chunk))
+    procs.append(p)
+    p.start()
+for p in procs:
+    p.join()
+\end{lstlisting}
+
+Processes operate independently and synchronize via shared memory buffers. This method allows true parallel processing, though with additional overhead and complexity.
+
+\pagebreak
+
+\section*{Introduction}
+\texttt{Numba} is a Just-In-Time (JIT) compiler for Python that transforms numerical functions into fast machine code. When used properly, it can deliver performance comparable to optimized C. It also supports features like GPU offloading and shared-memory parallelism.
+
+\section{Numba’s \texttt{jit} and \texttt{njit} Decorators}
+Here’s a simple example illustrating how Numba works:
+
+\begin{lstlisting}
+from numba import njit, jit
+from numpy import arange
+
+@jit(nopython=True)
+def sum2d(arr):
+    M, N = arr.shape
+    result = 0.0
+    for i in range(M):
+        for j in range(N):
+            result += arr[i, j]
+    return result
+
+a = arange(9).reshape(3, 3)
+print(sum2d(a))
+\end{lstlisting}
+
+On the first call, Numba compiles \texttt{sum2d} to native code. Using \texttt{@njit} provides a simpler, equivalent variant.
+
+\section{A Mandelbrot Fractal Example}
+We now apply Numba to generate a Mandelbrot fractal and measure execution time.
+
+\begin{lstlisting}
+import time
+
+class Timer:
+    def __enter__(self):
+        self.start = time.time()
+        return self
+    def __exit__(self, *args):
+        self.end = time.time()
+        self.interval = self.end - self.start
+
+import numpy as np
+from pylab import imshow, jet, show, ion
+
+def mandel(x, y, max_iters):
+    i = 0
+    c = complex(x, y)
+    z = 0.0j
+    for i in range(max_iters):
+        z = z*z + c
+        if (z.real*z.real + z.imag*z.imag) >= 4:
+            return i
+    return 255
+
+def create_fractal(min_x, max_x, min_y, max_y, image, iters):
+    height, width = image.shape
+    pixel_size_x = (max_x - min_x) / width
+    pixel_size_y = (max_y - min_y) / height
+    for x in range(width):
+        real = min_x + x * pixel_size_x
+        for y in range(height):
+            imag = min_y + y * pixel_size_y
+            color = mandel(real, imag, iters)
+            image[y, x] = color
+    return image
+
+image = np.zeros((2000, 3000), dtype=np.uint8)
+with Timer() as t:
+    mandelbrot = create_fractal(-2.0, 1.0, -1.0, 1.0, image, 20)
+print("Time to create fractal:", t.interval)
+imshow(mandelbrot, extent=[-2, 1, -1, 1])
+\end{lstlisting}
+
+This Python-only implementation runs relatively slowly due to nested loops and interpreter overhead.
+
+\section{JIT-Accelerated Fractal with Numba}
+
+Optimizing with Numba is as simple as adding \texttt{@njit} decorators:
+
+\begin{lstlisting}
+from numba import njit
+
+@njit
+def mandel(x, y, max_iters):
+    i = 0
+    c = complex(x, y)
+    z = 0.0j
+    for i in range(max_iters):
+        z = z*z + c
+        if (z.real*z.real + z.imag*z.imag) >= 4:
+            return i
+    return 255
+
+@njit
+def create_fractal(min_x, max_x, min_y, max_y, image, iters):
+    height, width = image.shape
+    pixel_size_x = (max_x - min_x) / width
+    pixel_size_y = (max_y - min_y) / height
+    for x in range(width):
+        real = min_x + x * pixel_size_x
+        for y in range(height):
+            imag = min_y + y * pixel_size_y
+            color = mandel(real, imag, iters)
+            image[y, x] = color
+    return image
+
+image = np.zeros((2000, 3000), dtype=np.uint8)
+with Timer() as t:
+    mandelbrot = create_fractal(-2.0, 1.0, -1.0, 1.0, image, 20)
+print("Time to create fractal:", t.interval)
+imshow(mandelbrot, extent=[-2, 1, -1, 1])
+\end{lstlisting}
+
+Adding Numba dramatically speeds up the computation (\texttt{njit} ensures no Python fallback).
+
+\section{Parallelism with \texttt{prange}}
+Numba supports multi-core parallelism via a parallel-aware decorator and loop:
+
+\begin{lstlisting}
+from numba import njit, prange
+
+@njit
+def mandel(x, y, max_iters):
+    ...
+
+@njit(['uint8[:, :](float64, float64, float64, float64, uint8[:, :], uint8)'], parallel=True)
+def create_fractal(min_x, max_x, min_y, max_y, image, iters):
+    height, width = image.shape
+    pixel_size_x = (max_x - min_x) / width
+    pixel_size_y = (max_y - min_y) / height
+    for x in prange(width):
+        real = min_x + x * pixel_size_x
+        for y in range(height):
+            imag = min_y + y * pixel_size_y
+            color = mandel(real, imag, iters)
+            image[y, x] = color
+    return image
+
+image = np.zeros((2000, 3000), dtype=np.uint8)
+with Timer() as t:
+    mandelbrot = create_fractal(-2.0, 1.0, -1.0, 1.0, image, 20)
+print("Time to create fractal:", t.interval)
+imshow(mandelbrot, extent=[-2, 1, -1, 1])
+\end{lstlisting}
+
+The `prange` directive enables loop iterations to be distributed across CPU cores, provided Numba knows all types in advance.
+
+\section{Inspecting Generated LLVM Code}
+One can introspect the low-level code generated by Numba:
+
+\begin{lstlisting}
+@njit
+def mysum(a, b):
+    return a + b
+
+c = mysum(3, 4)
+
+for signature, code in mysum.inspect_llvm().items():
+    print(signature, code)
+\end{lstlisting}
+
+This reveals LLVM IR that Numba uses internally for execution.
+
+\section*{Conclusion}
+Numba empowers Python with high performance, reaching speeds near C without leaving familiar syntax. It supports JIT compilation, parallel CPU execution, and even GPU targets. Perfect for high-performance Python workflows.
+
+\pagebreak
+
+\chapter{SIMD Autovectorization in Numba}
+
+Most modern CPUs support SIMD (Single Instruction, Multiple Data) hardware, enabling operations to be applied across multiple data elements simultaneously. Numba’s LLVM backend can leverage this via \emph{autovectorization}, especially when loops consist of pure arithmetic operations.
+
+Popular SIMD instruction sets include:
+\begin{itemize}
+  \item \textbf{SSE}: 128-bit registers
+  \item \textbf{AVX}: 256-bit registers
+  \item \textbf{AVX-512}: 512-bit registers
+\end{itemize}
+For instance, AVX can process either 8 float32 or 4 float64 values concurrently in a single instruction.
+
+\section{Basic SIMD}
+
+Below is a simple function computing squared differences between two arrays:
+
+\begin{lstlisting}
+@jit(nopython=True)
+def sqdiff(x, y):
+    out = np.empty_like(x)
+    for i in range(x.shape[0]):
+        out[i] = (x[i] - y[i])**2
+    return out
+\end{lstlisting}
+
+Numba specializes this function for `float32` and `float64`, allowing SIMD instructions to be used accordingly. Empirically, `float32` runs roughly twice as fast:
+\[
+\text{%timeit sqdiff(x32, y32) ≈ 1.95 μs},\quad \text{sqdiff(x64, y64) ≈ 3.81 μs}
+\]
+
+Assembly inspection reveals:
+\begin{itemize}
+  \item For `float32` (single precision), instructions like \texttt{vsubps} appear.
+  \item For `float64` (double precision), instructions like \texttt{vsubpd} are used.
+\end{itemize}
+
+\section{SIMD and Division}
+
+Including a division in the loop often disrupts autovectorization due to branching required for Python exception semantics:
+
+\begin{lstlisting}
+@jit(nopython=True)
+def frac_diff1(x, y):
+    out = np.empty_like(x)
+    for i in range(x.shape[0]):
+        out[i] = 2 * (x[i] - y[i]) / (x[i] + y[i])
+    return out
+\end{lstlisting}
+
+Inspection shows **no SIMD instructions generated**. The culprit: Python’s division throws exceptions on divide-by-zero, adding branching logic.
+
+By switching to NumPy’s error model, SIMD can be restored:
+
+\begin{lstlisting}
+@jit(nopython=True, error_model='numpy')
+def frac_diff2(x, y):
+    out = np.empty_like(x)
+    for i in range(x.shape[0]):
+        out[i] = 2 * (x[i] - y[i]) / (x[i] + y[i])
+    return out
+\end{lstlisting}
+
+SIMD (`vsubps`, etc.) reappears when inspecting the compiled code, though runtime speed may still not differ between single and double precision.
+
+Optimizing further: Cast constants to match data types:
+
+\begin{lstlisting}
+@jit(nopython=True, error_model='numpy')
+def frac_diff3(x, y):
+    out = np.empty_like(x)
+    dt = x.dtype
+    for i in range(x.shape[0]):
+        out[i] = dt.type(2) * (x[i] - y[i]) / (x[i] + y[i])
+    return out
+\end{lstlisting}
+
+This version restores SIMD benefits and improves `float32` performance significantly.
+
+\section{SIMD and Reductions}
+
+Loops with reductions (like summing or accumulating values) resist vectorization due to floating-point association issues. By enabling `fastmath`, you permit reordering and unlock SIMD:
+
+\begin{lstlisting}
+@jit(nopython=True)
+def do_sum(A):
+    acc = 0.
+    for x in A:
+        acc += x**2
+    return acc
+
+@jit(nopython=True, fastmath=True)
+def do_sum_fast(A):
+    acc = 0.
+    for x in A:
+        acc += x**2
+    return acc
+\end{lstlisting}
+
+The `fastmath=True` version allows SIMD instructions (e.g., `vmulps`) and achieves roughly **2× speedup**.
+
+\section*{Summary}
+
+NUMBA, via LLVM autovectorization, can generate SIMD instructions when loops consist of pure arithmetic and when error models (like Python's defaults) are compatible. Key strategies:
+\begin{itemize}
+  \item Use lower-precision types when possible.
+  \item Switch to NumPy’s error model to enable branching-free loops.
+  \item Employ `fastmath` for reductions to unlock SIMD.
+\end{itemize}
+
+
 \end{document}
