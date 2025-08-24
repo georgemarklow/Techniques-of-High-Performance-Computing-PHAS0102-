@@ -1,30 +1,25 @@
-\documentclass{book}
+
+\documentclass[11pt,a4paper]{book}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{geometry}
 \usepackage{listings}
+\usepackage{verbatim}
+\usepackage{enumitem}
 \usepackage{xcolor}
+\usepackage{amsmath}
+
+\geometry{margin=1in}
 
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
-\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
-
-\lstdefinestyle{mystyle}{
-    backgroundcolor=\color{backcolour},   
-    commentstyle=\color{codegreen},
-    keywordstyle=\color{magenta},
-    numberstyle=\tiny\color{codegray},
-    stringstyle=\color{codepurple},
-    basicstyle=\ttfamily\footnotesize,
-    breakatwhitespace=false,         
-    breaklines=true,                 
-    captionpos=b,                    
-    keepspaces=true,                 
-    numbers=left,                    
-    numbersep=5pt,                  
-    showspaces=false,                
-    showstringspaces=false,
-    showtabs=false,                  
-    tabsize=2
-}
+\definecolor{backcolour}{rgb}{0.98,0.98,0.98}
 
 \lstset{
   language=Python,
@@ -35,19 +30,27 @@
   frame=single,
   showstringspaces=false,
   columns=fullflexible,
-  aboveskip=2em,
-  belowskip=2em
+  aboveskip=1em,
+  belowskip=1em
 }
-
 \lstset{style=mystyle}
 
 
-\title{Techniques of High-Performance Computing}
-\author{George Marklow Notes}
-\date{}
-
 \begin{document}
+
+\author{George Marklow}
+\title{Techniques of High-Performance Computing (PHAS0102)}
 \maketitle
+
+\frontmatter
+
+\pagebreak
+
+\tableofcontents
+
+\mainmatter
+
+\pagebreak
 
 \part{High-Performance Computing with Python}
 
@@ -683,5 +686,982 @@ NUMBA, via LLVM autovectorization, can generate SIMD instructions when loops con
   \item Employ `fastmath` for reductions to unlock SIMD.
 \end{itemize}
 
+\chapter{A Numexpr example}
+
+\section{A Numexpr Example}
+
+Numexpr is a library for the fast execution of array transformations. You can define complex elementwise operations on arrays, and Numexpr will generate efficient code to execute them.
+
+\subsection*{Importing Modules}
+\begin{lstlisting}
+import numexpr as ne
+import numpy as np
+\end{lstlisting}
+
+Numexpr supports fast, multithreaded operations on array elements. Below, it's tested using large arrays.
+
+\subsection*{Creating Test Arrays}
+\begin{lstlisting}
+a = np.random.rand(1000000)
+b = np.random.rand(1000000)
+\end{lstlisting}
+
+\subsection*{Simple Componentwise Operations}
+Componentwise addition is straightforward:
+\begin{lstlisting}
+ne.evaluate("a + 1")
+ne.evaluate("a + b")
+\end{lstlisting}
+
+\subsection*{Evaluating Complex Expressions}
+Numexpr can handle compound expressions efficiently:
+\begin{lstlisting}
+ne.evaluate('a*b-4.1*a > 2.5*b')
+\end{lstlisting}
+
+\subsection*{Performance Comparison: Numexpr vs NumPy}
+Here's timing comparison using IPython’s \verb|%timeit| magic:
+
+\begin{lstlisting}
+%%timeit
+a * b - 4.1 * a > 2.5 * b
+
+%%timeit
+ne.evaluate('a*b-4.1*a > 2.5*b')
+\end{lstlisting}
+
+Typical results:
+\begin{itemize}
+  \item NumPy: approximately \textbf{7.9 ms}
+  \item Numexpr: approximately \textbf{1.0 ms}
+\end{itemize}
+
+This demonstrates roughly a \emph{tenfold speedup} with minimal code change.
+
+\subsection*{Transcendental Function Performance}
+Numexpr also accelerates transcendental operations:
+\begin{lstlisting}
+%%timeit
+ne.evaluate("sin(a) + arcsinh(a/b)")
+
+%%timeit
+np.sin(a) + np.arcsinh(a / b)
+\end{lstlisting}
+
+Typical timings suggest a major performance gain for such expressions.
+
+\section*{Summary}
+Numexpr offers an effortless way to improve performance for array-heavy computations, especially when working with large datasets and complex expressions. It is especially effective for minimizing intermediate memory usage and optimizing CPU cache usage.
+
+\chapter{An Introduction to GPU Computing}
+
+\section{An Introduction to GPU Computing}
+
+\subsection*{Background}
+
+Graphics Processing Units (GPUs) are extremely powerful compute devices. To understand their origin, consider a three-dimensional scene constructed from a large number of flat surface triangles with coordinates \((x_i, y_i, z_i)\). When a camera moves through this scene, rendering requires projecting each triangle onto a two-dimensional viewing plane, handling textures, lighting, and visibility checks. These operations are massive in quantity but can be executed independently for each triangle.
+
+GPUs are built to perform such highly parallel, simple computations at high speed by using many simple processing units optimized for these tasks—though they are inefficient at complex operations like branching.
+
+In the early 2000s, researchers began adapting GPUs for non-graphics tasks—particularly those involving many independent operations on structured data. In such scenarios, GPUs can significantly outperform CPUs. However, GPUs are not universally beneficial, including in cases such as:
+
+\begin{itemize}
+  \item \textbf{Highly serial algorithms}: Without parallelism, GPUs offer little to no advantage, while CPUs (especially single-threaded) excel.
+  \item \textbf{Memory-bound workloads}: If each data unit requires minimal computation, the overhead of moving data to a discrete GPU (over the system bus) diminishes performance benefits. Integrated CPU/GPU architectures mitigate this issue to some extent.
+  \item \textbf{Unstructured or adaptive computations}: Tasks involving complex, changing data structures are challenging to parallelize effectively on GPUs; CPUs typically handle these more robustly.
+\end{itemize}
+
+Early reports touted speedups of 50–100x using consumer-grade GPUs compared with CPUs. Such claims are valid only in very specific, highly parallel application domains (e.g., Monte Carlo simulations) or synthetic benchmarks—and often involved comparing optimized GPU code with non-optimized CPU implementations. Today, the field embraces \emph{heterogeneous computing}, where CPUs and GPUs collaborate, each handling tasks matched to their strengths.
+
+\subsection*{GPU Computing Standards and Languages}
+
+Several programming interfaces support GPU computing:
+
+\begin{itemize}
+  \item \textbf{Nvidia CUDA}: A mature and widely used platform accessible from languages like C/C++, Fortran, Python, MATLAB, and Julia. While powerful, it is proprietary to Nvidia hardware.
+  \item \textbf{OpenCL}: An open standard from the Khronos Group that supports GPUs, CPUs, FPGAs, and more. It enables portability but is more complex due to multi-vendor support. Increasingly, SYCL, a higher-level C++ standard based on OpenCL, is gaining traction—especially with Intel’s backing through OneAPI.
+  \item \textbf{SYCL}: A modern C++-centric heterogeneous compute standard built on OpenCL. It is rapidly adopted in HPC, with Intel’s OneAPI offering compatibility.
+  \item \textbf{OneAPI}: Intel’s unified ecosystem for heterogeneous computing, largely compatible with SYCL and targeting its Xe GPUs.
+  \item \textbf{OpenACC}: A standard for compiler pragmas enabling computation offload to accelerators in C, C++, and Fortran. Pushed by Cray and Nvidia, it's supported in modern GCC compilers and used in HPC centers.
+\end{itemize}
+
+\subsection*{Hardware for GPU Computing}
+
+\subsubsection*{Nvidia}
+All current Nvidia GPUs are well-suited for GPU computing and support major standards like CUDA, OpenCL, SYCL, and OneAPI. The Nvidia A100, for instance, boasts up to 10 TFLOPS in double-precision and 20 TFLOPS in single-precision performance.
+
+\subsubsection*{AMD}
+AMD supports GPU compute mainly through its ROCm platform for architectures up to Vega. The newer RDNA architecture is presently unsupported. AMD’s compute-focused architecture, CDNA, targets data center workloads.
+
+\subsubsection*{Intel}
+Intel has traditionally provided robust OpenCL support for both CPUs and GPUs, though its consumer GPUs have lagged behind in raw performance. The upcoming Intel Xe architecture is expected to provide competitive compute capabilities and support standards like OpenCL, OpenMP, and OneAPI.
+
+\subsection*{Access to GPU Computing in Python}
+
+[No specific content was presented in the source for this heading.]
+
+\subsection*{Numba \& CUDA}
+
+[No code or detailed content was available in the source under this heading.]
+
+\section*{Summary}
+
+GPUs are highly parallel compute devices optimized for executing many simple operations in parallel. Their greatest strength is in highly parallelizable, compute-heavy tasks with regular data structures. A variety of programming standards exist to support GPU compute, each with its own trade-offs. Understanding the target problem’s structure and workload is essential to effectively leverage GPU acceleration.
+
+\chapter{A tour of CUDA}
+
+In this chapter, we explore CUDA, the standard GPU programming model for Nvidia devices. To understand CUDA’s architecture, we first examine GPU device organization and memory structure.
+
+\subsection*{CUDA Device Model}
+GPU accelerators are massively parallel devices capable of executing a large number of threads concurrently. CUDA devices have a hierarchical memory structure and support thread grouping through blocks, enabling efficient shared memory access.
+
+\subsubsection*{Threads, CUDA Cores, Warps, and Streaming Multiprocessors}
+GPUs are structured into Streaming Multiprocessors (SMs). Each SM schedules and executes multiple thread blocks. For example, the Nvidia A100 architecture includes integer, floating-point, and tensor cores, optimized for different workloads.
+
+Threads are grouped into blocks, and each block is further divided into Warps of 32 threads. All threads in one Warp must follow the same execution path—a design resembling SIMD vector registers. Efficient utilization requires thread blocks sized in multiples of 32; a block of 48 threads uses 2 Warps, with one only partially utilized.
+
+\subsubsection*{Numbering of Threads}
+Every thread belongs to a block, and all blocks form a grid. CUDA supports 1D, 2D, or 3D grids, convenient for matching the shape of computation domains. Each thread’s global index can be computed for use in parallel computation.
+
+\subsubsection*{Memory Hierarchy}
+CUDA uses three main memory regions:
+\begin{itemize}
+  \item \textbf{Global memory}: accessible by all threads, largest capacity but slower.
+  \item \textbf{Shared memory}: per-block, fast, shared among threads in the same block.
+  \item \textbf{Local (private) memory}: fast storage private to each thread.
+\end{itemize}
+
+\subsection*{An Example}
+The following example (adapted from Numba’s official documentation) illustrates a block-wise GPU-accelerated matrix multiplication using shared memory.
+
+\begin{lstlisting}
+from numba import cuda, float32
+
+# Controls threads per block and shared memory usage.
+# The computation will be done on blocks of TPBxTPB elements.
+TPB = 16
+
+@cuda.jit
+def fast_matmul(A, B, C):
+    # Define shared memory arrays
+    sA = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+    sB = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+
+    x, y = cuda.grid(2)
+    tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
+    bpg = cuda.gridDim.x  # blocks per grid
+
+    if x >= C.shape[0] or y >= C.shape[1]:
+        return
+
+    tmp = 0.0
+    for i in range(bpg):
+        # Preload data into shared memory
+        sA[tx, ty] = A[x, ty + i * TPB]
+        sB[tx, ty] = B[tx + i * TPB, y]
+        cuda.syncthreads()
+
+        # Compute partial products
+        for j in range(TPB):
+            tmp += sA[tx, j] * sB[j, ty]
+        cuda.syncthreads()
+
+    C[x, y] = tmp
+\end{lstlisting}
+
+This kernel uses shared memory to reduce global memory pressure and synchronize among threads within the block to compute one element of the result matrix per thread.
+
+\section*{Summary}
+CUDA’s programming model enables fine-grained control over parallelism and memory hierarchy. Key concepts like SMs, thread blocks and warps, and various memory types form the foundation for writing highly efficient GPU-accelerated code using frameworks such as Numba.
+
+\chapter{Numba Cuda in Practice}
+
+To enable CUDA support in Numba, you can install the CUDA toolkit via conda:
+
+\begin{lstlisting}
+conda install cudatoolkit
+\end{lstlisting}
+
+Numba's CUDA extension supports almost all core CUDA features, with the exception of dynamic parallelism (launching kernels from within kernels) and texture memory.  
+
+\subsection*{Finding out about CUDA devices}
+You can detect available CUDA devices using:
+
+\begin{lstlisting}
+from numba import cuda
+
+cuda.detect()
+\end{lstlisting}
+
+Example output:
+\begin{verbatim}
+Found 1 CUDA devices
+id 0  b'Quadro RTX 3000' [SUPPORTED]
+    compute capability: 7.5
+Summary:
+  1/1 devices are supported
+
+True
+\end{verbatim}
+
+\subsection*{Launching kernels}
+CUDA kernels in Numba are declared using the `@cuda.jit` decorator:
+
+\begin{lstlisting}
+@cuda.jit
+def an_empty_kernel():
+    [pos_x, pos_y] = cuda.grid(2)
+\end{lstlisting}
+
+You launch it with specified grid and block configurations:
+
+\begin{lstlisting}
+threadsperblock = (16, 16)
+blockspergrid = (256, 256)
+
+an_empty_kernel[blockspergrid, threadsperblock]()
+\end{lstlisting}
+
+You can also access thread and block indices within the kernel:
+
+\begin{lstlisting}
+@cuda.jit
+def another_kernel():
+    tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
+    tz = cuda.threadIdx.z
+
+    block_x = cuda.blockIdx.x
+    block_y = cuda.blockIdx.y
+    block_z = cuda.blockIdx.z
+
+    dim_x = cuda.blockDim.x
+    dim_y = cuda.blockDim.y
+    dim_z = cuda.blockDim.z
+
+    (pos_x, pos_y, pos_z) = cuda.grid(3)
+\end{lstlisting}
+
+And launch it with 3D grid and block dimensions:
+
+\begin{lstlisting}
+threadsperblock = (16, 16, 4)
+blockspergrid = (256, 256, 256)
+
+another_kernel[blockspergrid, threadsperblock]()
+\end{lstlisting}
+
+\subsection*{Python features in Numba for CUDA}
+Within CUDA kernels, only a subset of Python is supported. Unsupported constructs include exceptions, context managers, list comprehensions, and `yield`. Supported types include `int`, `float`, `complex`, `bool`, `None`, and `tuple`. Only a small subset of NumPy functions is available. Operations involving dynamic memory allocation are not supported. :contentReference[oaicite:1]{index=1}
+
+\subsection*{Memory management}
+Numba automates data transfer for simple cases, but complex scenarios may require explicit buffering:
+
+\begin{lstlisting}
+import numpy as np
+
+arr = np.arange(10)
+device_arr = cuda.to_device(arr)
+
+host_arr = device_arr.copy_to_host()
+
+host_array = np.empty(shape=device_arr.shape, dtype=device_arr.dtype)
+device_arr.copy_to_host(host_array)
+
+device_array = cuda.device_array((10,), dtype=np.float32)
+\end{lstlisting}
+:contentReference[oaicite:2]{index=2}
+
+\subsection*{Advanced features}
+Numba CUDA also supports advanced capabilities:
+
+\begin{itemize}
+  \item \textbf{Pinned Memory}: Faster data transfers compared to regular host memory.
+  \item \textbf{Streams}: Concurrent execution of memory transfers and kernels using separate streams and synchronization via events.
+  \item \textbf{Multiple Devices}: Helper routines to enumerate and select different CUDA devices.
+\end{itemize}
+
+For a complete list of features, see the official Numba CUDA documentation. :contentReference[oaicite:3]{index=3}
+
+\section*{Summary}
+This section offers a practical guide to using Numba’s CUDA support—from device interrogation and kernel definition to memory transfer and advanced concurrency features. Ideal for getting high-performance GPU code up and running quickly in Python.
+
+\chapter{GPU accelerated evaluation of particle sums}
+
+This section demonstrates how to accelerate the computation of particle sums using GPUs. Given targets \(x_i \in \mathbb{R}^3\) and sources \(y_j \in \mathbb{R}^3\) with weights \(c_j \in \mathbb{C}\), the objective is to compute:
+\[
+f(x_i) = \sum_{j} g(x_i, y_j) \, c_j
+\]
+where \(g\) can be, for example, the RBF kernel:
+\[
+g(x, y) = \exp\left( -\frac{\|x - y\|^2}{2 \sigma^2} \right)
+\]
+This direct evaluation has complexity \(O(MN)\) when there are \(M\) targets and \(N\) sources.
+
+\subsection*{CPU Implementation (Parallel)}
+
+\part{Sparse Linear Algebra}
+
+\chapter{The need for sparse linear algebra - A PDE example}
+
+\section{The Need for Sparse Linear Algebra: A PDE Example}
+
+In modern applications we solve problems that lead to matrices with hundreds of thousands—or even billions—of unknowns. These matrices are typically highly sparse, meaning they contain mostly zeros. Efficient computation therefore requires sparse storage formats and specialized algorithms tailored to sparsity rather than naive dense storage.
+
+\subsection*{Solving a Poisson Problem on the Unit Square}
+
+Consider the Poisson equation on the unit square \(\Omega = [0,1]^2\):
+\[
+ -\Delta u = 1 \quad \text{in } \Omega,
+\]
+with boundary condition \(u = 0\) on \(\partial\Omega\).
+
+We discretise using finite differences: let
+\[
+x_i = i\,h,\quad h = \frac{1}{N-1},\quad i = 0,1,\dots,N-1,
+\]
+and similarly \(y_j = j\,h\). Let
+\[
+u_{i,j} := u(x_i, y_j).
+\]
+For interior grid points \(0 < i,j < N-1\), approximate the Laplacian as
+\[
+-\Delta u_{i,j} \approx \frac{4u_{i,j} - u_{i-1,j} - u_{i+1,j} - u_{i,j-1} - u_{i,j+1}}{h^2}.
+\]
+Boundary points enforce \(u_{i,j} = 0\). This discretisation leads to a linear system
+\[
+A\,x = f,
+\]
+where vector \(f\) holds ones for interior nodes and zeros on boundaries, and \(x\) collects the unknowns \(u_{i,j}\) in row-major order: \(x_{jN + i} = u_{i,j}\).
+
+\subsection*{Sparsity Analysis}
+
+Interior grid points numbered \((N-2)^2\) each correspond to rows in \(A\) with 5 nonzero entries. The boundary provides \(4N-4\) points, each contributing one diagonal entry. Thus the total number of nonzero entries is
+\[
+5 (N^2 - 4N + 4) + (4N - 4) = 5N^2 - 16N + 16.
+\]
+However, \(A\) has dimensions \(N^2 \times N^2\), containing \(N^4\) entries overall. Hence, the fraction of nonzero elements scales as
+\[
+O\!\left(N^{-2}\right),
+\]
+making it clear that sparse formats are essential: for \(N = 100\), only about \(1/10{,}000\) of the matrix entries are nonzero.
+
+\subsection*{Discretisation and Solution via Sparse Matrices}
+
+The following Python function constructs the sparse matrix \(A\) and right-hand side \(f\), solves the system, and visualises the solution:
+
+\begin{lstlisting}
+import numpy as np
+from scipy.sparse import coo_matrix
+
+def discretise_poisson(N):
+    """Generate the matrix and rhs for the discrete Poisson operator."""
+
+    nelements = 5 * N**2 - 16 * N + 16
+
+    row_ind = np.empty(nelements, dtype=np.int64)
+    col_ind = np.empty(nelements, dtype=np.int64)
+    data = np.empty(nelements, dtype=np.float64)
+
+    f = np.empty(N * N, dtype=np.float64)
+
+    count = 0
+    for j in range(N):
+        for i in range(N):
+            idx = j * N + i
+            if i == 0 or i == N - 1 or j == 0 or j == N - 1:
+                row_ind[count] = col_ind[count] = idx
+                data[count] = 1
+                f[idx] = 0
+                count += 1
+            else:
+                row_ind[count:count + 5] = idx
+                col_ind[count]     = idx
+                col_ind[count + 1] = idx + 1
+                col_ind[count + 2] = idx - 1
+                col_ind[count + 3] = idx + N
+                col_ind[count + 4] = idx - N
+
+                data[count]       = 4 * (N-1)**2
+                data[count+1:count+5] = - (N-1)**2
+                f[idx] = 1
+                count += 5
+
+    A = coo_matrix((data, (row_ind, col_ind)), shape=(N**2, N**2)).tocsr()
+    return A, f
+
+# Solve and visualize
+%matplotlib inline
+from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.sparse.linalg import spsolve
+
+N = 200
+A, f = discretise_poisson(N)
+sol = spsolve(A, f)
+u = sol.reshape((N, N))
+
+# Visualisation code here...
+\end{lstlisting}
+
+This exemplifies why sparse storage and solvers are not only memory efficient but also computationally viable for large-scale PDE problems.
+
+\section*{Summary}
+
+The discretization of PDEs like Poisson’s equation leads to extremely sparse, structured linear systems. Sparse matrix formats coupled with appropriate solvers make solving such systems feasible even at large scales. Dense representations are not practical, underscoring the critical need for sparse linear algebra in high-performance computing.
+
+\chapter{Sparse Matrix data structures}
+
+We explore several sparse matrix storage formats, using a 5×5 example matrix for demonstration. While the example’s small size makes sparsity irrelevant computationally, it serves educational clarity.
+
+\subsection*{Example Matrix}
+\begin{lstlisting}
+import numpy as np
+
+A = np.array([
+    [1, 0, 0, 2, 0],
+    [3, 4, 0, 5, 0],
+    [6, 0, 7, 8, 9],
+    [0, 0,10,11, 0],
+    [0, 0, 0, 0,12]
+])
+print(A)
+\end{lstlisting}
+
+\subsection*{COO (Coordinate) Format}
+The COO format stores each nonzero element by row index, column index, and value:
+
+\begin{lstlisting}
+from scipy.sparse import coo_matrix
+
+A_coo = coo_matrix(A)
+print(A_coo.row)
+print(A_coo.col)
+print(A_coo.data)
+print(list(zip(A_coo.row, A_coo.col, A_coo.data)))
+\end{lstlisting}
+
+Example output:
+\begin{verbatim}
+[0 0 1 1 1 2 2 2 2 3 3 4]
+[0 3 0 1 3 0 2 3 4 2 3 4]
+[ 1 2 3 4 5 6 7 8 9 10 11 12]
+[(0,0,1), (0,3,2), ..., (4,4,12)]
+\end{verbatim}
+
+COO is easy to construct and supports duplicate entries (which are summed). However, it’s inefficient for computations and memory usage.
+
+\subsection*{CSR (Compressed Sparse Row) Format}
+CSR improves efficiency by replacing repeated row indices with index pointers:
+
+\begin{lstlisting}
+A_csr = A_coo.tocsr()
+print(A_csr.data)
+print(A_csr.indices)
+print(A_csr.indptr)
+\end{lstlisting}
+
+Example output:
+\begin{verbatim}
+[ 1  2  3  4  5  6  7  8  9 10 11 12]
+[0 3 0 1 3 0 2 3 4 2 3 4]
+[ 0 2 5 9 11 12]
+\end{verbatim}
+
+Entries for row *i* are located via slicing:
+\[
+\text{indices}[ \text{indptr}[i] : \text{indptr}[i+1] ]
+\]
+The `indptr` array has length (rows + 1), ending at the total number of nonzeros.
+
+This format is more storage- and compute-efficient than COO; its column-based counterpart is the CSC (Compressed Sparse Column) format.
+
+\subsection*{CSR Matrix–Vector Product}
+CSR format enables efficient implementation of matrix–vector multiplication, suitable for parallel execution:
+
+\begin{lstlisting}
+import numba
+import numpy as np
+
+@numba.jit(nopython=True, parallel=True)
+def csr_matvec(data, indices, indptr, shape, x):
+    m, n = shape
+    y = np.zeros(m, dtype=np.float64)
+    for row in numba.prange(m):
+        start = indptr[row]
+        end = indptr[row + 1]
+        for j in range(start, end):
+            y[row] += data[j] * x[indices[j]]
+    return y
+\end{lstlisting}
+
+Benchmarking shows this implementation can outperform the default SciPy multiplication:
+- Custom CSR MatVec: ≈ **5.3 ms**
+- `A @ x` in SciPy: ≈ **7.3 ms**
+
+\subsection*{Other Sparse Formats}
+SciPy supports various additional formats (e.g. DIA, LIL, etc.). For a comprehensive list, refer to the SciPy documentation:
+\url{https://docs.scipy.org/doc/scipy/reference/sparse.html}
+
+\section*{Summary}
+
+Sparse matrix storage formats like COO and CSR enable compact representation and efficient computation. CSR, in particular, balances memory savings with effective computation behavior, especially when paired with optimized operations like parallel matrix–vector multiplication.
+
+\chapter{An introduction to sparse linear system solvers}
+
+Sparse linear systems arise in many computational applications, and specialized software packages exist to solve these efficiently. These solvers fall into three major categories: direct, iterative, and multigrid methods.
+
+\subsection*{Software for Sparse Solvers}
+
+\subsubsection*{Sparse Direct Solver Packages}
+\begin{itemize}
+  \item \textbf{Pardiso}: Available under a proprietary license or via Intel MKL; note that the MKL-integrated version may be significantly slower than the standalone version.
+  \item \textbf{SuperLU}: The standard sparse direct solver, included as the serial version in SciPy—suitable for small to medium-sized problems.
+  \item \textbf{MUMPS}: A massively parallel direct solver frequently used on HPC clusters.
+  \item \textbf{Amesos2}: Part of the Trilinos ecosystem; provides its own sparse direct solver and interfaces to many others.
+  \item \textbf{Eigen}: A C++ library offering both native sparse direct solvers and interfaces to external solvers.
+\end{itemize}
+
+\subsubsection*{Sparse Iterative Solver Packages}
+\begin{itemize}
+  \item \textbf{SciPy}: Includes a good set of built-in iterative solvers, effective for medium-sized problems.
+  \item \textbf{PETSc}: A comprehensive library for parallel sparse solvers with various iterative methods.
+  \item \textbf{Belos}: A Trilinos component offering numerous parallel iterative solver algorithms.
+  \item \textbf{Eigen}: Also provides several iterative solvers alongside its direct solver capabilities.
+\end{itemize}
+
+\subsubsection*{Multigrid Solver Packages}
+\begin{itemize}
+  \item \textbf{AmgX}: An algebraic multigrid library designed for NVIDIA GPUs.
+  \item \textbf{PyAMG}: A Python-based package offering algebraic multigrid solvers.
+  \item \textbf{ML}: The multigrid solver included in the Trilinos framework.
+\end{itemize}
+
+Almost all of these packages are written in C or C++, though many expose Python bindings for usability.
+
+In later sessions, the course explores these methods—direct solvers, iterative solvers, and multigrid—in more depth, providing practical examples using several of the aforementioned software tools.
+
+\chapter{Iterative Solvers 1 - Krylov subspaces, Arnoldi Iteration and the Full Orthogonalisation Method}
+
+Manual Print
+
+\chapter{Iterative Solvers 2 - From FOM to GMRES}
+
+FOM (Full Orthogonalisation Method) does not guarantee reduction in the global residual at each step—it only ensures orthogonality of the residual to the Krylov subspace. To address this, GMRES (Generalized Minimal Residual) is employed.
+
+\subsection*{The Basic Idea of GMRES}
+Let \(V_m\) denote the current orthonormal Krylov basis. We seek a correction \(V_m y_m\) such that
+\[
+A \left( x_0 + V_m y_m \right) \approx b.
+\]
+Unlike FOM, GMRES chooses \(y_m\) to minimize the residual norm:
+\[
+y_m = \arg\min_{y \in \mathbb{R}^m} \left\| A V_m y - r_0 \right\|_2.
+\]
+Using the Arnoldi relation
+\[
+A V_m = V_m H_m + h_{m+1,m} v_{m+1} e_m^T,
+\]
+this problem reduces to solving a small least-squares system:
+\[
+\left\|
+\begin{bmatrix}
+H_m \\
+h_{m+1,m} e_m^T
+\end{bmatrix} y_m
+- \|r_0\|_2 e_1
+\right\|_2 \quad\text{is minimized.}
+\]
+A notable advantage is that the solution may be updated efficiently as \(m\) grows—without resolving from scratch.
+
+\subsection*{Some Experiments with GMRES}
+Below is an example illustrating spectrum clustering and convergence behavior:
+
+\begin{lstlisting}
+import numpy as np
+from scipy.linalg import eigvals
+import matplotlib.pyplot as plt
+
+rand = np.random.RandomState(0)
+n = 500
+A = rand.randn(n, n) / np.sqrt(n)
+eigenvalues = eigvals(A)
+
+plt.figure(figsize=(6,6))
+plt.plot(np.real(eigenvalues), np.imag(eigenvalues), 'rx', markersize=1)
+plt.title('Eigenvalue spectrum of A')
+plt.xlabel('Real')
+plt.ylabel('Imaginary')
+plt.show()
+\end{lstlisting}
+
+This matrix has eigenvalues clustered within the unit disk.
+
+Benchmarking GMRES for different shifts:
+
+\begin{lstlisting}
+from scipy.sparse.linalg import gmres
+
+shifts = [0,1,2,5,10]
+colors = ['r','k','y','g','m']
+b = rand.randn(n)
+
+plt.figure(figsize=(6,6))
+for shift, col in zip(shifts, colors):
+    Ashift = A + shift * np.eye(n)
+    residuals = []
+    callback = lambda res: residuals.append(res)
+    x, _ = gmres(Ashift, b, restart=n, callback=callback, callback_type='pr_norm')
+    residuals = residuals[:50]
+    plt.semilogy(residuals, col + '-x', markersize=2, label=f'shift = {shift}')
+
+plt.legend(loc='lower center', ncol=len(shifts))
+plt.title('GMRES Convergence for Various Shifts')
+plt.xlabel('Iteration')
+plt.ylabel('Residual Norm')
+plt.show()
+\end{lstlisting}
+
+We observe that GMRES converges more slowly as the eigenvalue cluster moves away from the origin.
+
+\subsection*{A Remark on Restarts}
+GMRES can become memory-intensive and computationally costly at higher iteration counts due to ever-growing orthogonalisation overhead. One common mitigation is to \emph{restart} GMRES periodically using the current approximate solution as the new starting point—trading off additional iterations for reduced memory demand.
+
+\section*{Summary}
+GMRES extends FOM by minimizing the residual norm at each step. It remains efficient through incremental updates of the least-squares problem. Restart strategies help manage computational and memory costs in practice.
+
+\chapter{Iterative Solvers 3 - The Conjugate Gradient Method}
+
+\subsection*{Symmetric Positive Definite Matrices}
+Let \(A \in \mathbb{R}^{n \times n}\) be symmetric (\(A^T = A\)). It is called \emph{positive definite} if
+\[
+x^T A x > 0, \quad \forall\, x \neq 0.
+\]
+This implies all eigenvalues of \(A\) are positive. Such matrices commonly arise when discretizing energy functionals, for example:
+\[
+E = \frac{1}{2} m \|\nabla f\|^2.
+\]
+The Conjugate Gradient (CG) method leverages this structure to solve \(A x = b\) efficiently.
+
+\subsection*{Lanczos Method: Arnoldi on Symmetric Matrices}
+Starting from the Arnoldi relation,
+\[
+A V_m = V_m H_m + h_{m+1,m}\,v_{m+1}e_m^T,
+\]
+with orthonormal \(V_m\), symmetric \(A\) implies \(H_m\) becomes symmetric and, being upper Hessenberg, must be \emph{tridiagonal}. This enables a short 3-term recurrence.
+
+\subsubsection*{Arnoldi Implementation in Python}
+\begin{lstlisting}
+import numpy as np
+
+def arnoldi(A, r0, m):
+    """Perform m-step Arnoldi method."""
+    n = A.shape[0]
+    V = np.empty((n, m + 1), dtype=np.float64)
+    H = np.zeros((m + 1, m), dtype=np.float64)
+    V[:, 0] = r0 / np.linalg.norm(r0)
+    for index in range(m):
+        tmp = A @ V[:, index]
+        h = V[:, :index + 1].T @ tmp
+        H[:index + 1, index] = h
+        w = tmp - V[:, :index + 1] @ h
+        H[index + 1, index] = np.linalg.norm(w)
+        V[:, index + 1] = w / H[index + 1, index]
+    return V, H
+\end{lstlisting}
+
+The resulting \(H_m\) is tridiagonal. Consequently, each new Arnoldi vector only needs orthogonalization against the two most recent vectors—a hallmark of the Lanczos algorithm.
+
+\subsection*{Solving with Lanczos and CG}
+The Lanczos relation yields:
+\[
+T_m y_m = \|r_0\|_2 e_1, \quad x_m = x_0 + V_m y_m,
+\]
+where \(T_m\) is the tridiagonal Lanczos matrix. The Conjugate Gradient (CG) method implements this efficiently.
+
+\subsection*{CG via Optimization: Quadratic Formulation}
+Consider minimizing
+\[
+f(x) = \frac{1}{2}x^T A x - b^T x,
+\]
+then \(\nabla f(x) = A x - b\), so \(\nabla f(x^*) = 0\) implies \(A x^* = b\). This formulation shows CG inherently solves a quadratic optimization problem.
+
+\subsection*{Steepest Descent}
+Define:
+\[
+r_k = b - A x_k.
+\]
+Update via:
+\[
+\alpha_k = \frac{r_k^T r_k}{r_k^T A r_k},\quad
+x_{k+1} = x_k + \alpha_k r_k.
+\]
+Convergence rate depends on the condition number \(\kappa\). Specifically,
+\[
+\|e_k\|_A \le \left(\frac{\kappa - 1}{\kappa + 1}\right)^k \|e_0\|_A,
+\]
+which can converge quite slowly when \(\kappa\) is large.
+
+\subsection*{Conjugate Directions Method}
+Choosing conjugate directions \(d_i\) such that:
+\[
+d_i^T A d_j = 0,\ i \neq j,
+\]
+and enforcing \(e_{k+1} \perp_A d_k\) yields:
+\[
+\alpha_k = \frac{d_k^T r_k}{d_k^T A d_k}.
+\]
+This approach converges in at most \(n\) steps.
+
+\subsection*{Conjugate Gradients (CG)}
+The CG iteration combines steepest descent with conjugacy:
+
+\[
+\begin{aligned}
+d_0 &= r_0 = b - A x_0,\\
+\alpha_i &= \frac{r_i^T r_i}{d_i^T A d_i},\\
+x_{i+1} &= x_i + \alpha_i d_i,\\
+r_{i+1} &= r_i - \alpha_i A d_i,\\
+\beta_{i+1} &= \frac{r_{i+1}^T r_{i+1}}{r_i^T r_i},\\
+d_{i+1} &= r_{i+1} + \beta_{i+1} d_i.
+\end{aligned}
+\]
+The convergence bound improves to:
+\[
+\|e_i\|_A \le 2 \left( \frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1} \right)^i \|e_0\|_A,
+\]
+which is much faster for well-conditioned systems.
+
+\subsection*{Numerical Example with CG}
+\begin{lstlisting}
+from scipy.sparse import diags
+from scipy.sparse.linalg import cg
+import numpy as np
+import matplotlib.pyplot as plt
+
+n = 10000
+data = [2.1*np.ones(n), -1*np.ones(n-1), -1*np.ones(n-1)]
+offsets = [0, 1, -1]
+A = diags(data, offsets, shape=(n,n), format='csr')
+
+b = np.random.randn(n)
+residuals = []
+callback = lambda x: residuals.append(np.linalg.norm(b - A @ x) / np.linalg.norm(b))
+
+sol, _ = cg(A, b, tol=1e-6, callback=callback, maxiter=1000)
+
+plt.semilogy(1 + np.arange(len(residuals)), residuals, 'k--')
+plt.title('CG Convergence')
+plt.xlabel('Iteration')
+plt.ylabel(r'$\|Ax - b\|_2 / \|b\|_2$')
+plt.show()
+\end{lstlisting}
+
+This clearly illustrates CG’s convergence behavior.
+
+\section*{Summary}
+CG builds on Lanczos and steepest descent to deliver efficient convergence by constructing conjugate search directions. It often converges in significantly fewer steps than naive descent methods, making it a workhorse for solving large SPD linear systems.
+
+
+\chapter{Iterative Solvers 4 - Preconditioning}
+
+\subsection*{The Basic Idea}
+Preconditioning aims to transform the original linear system
+\[
+Ax = b
+\]
+into a form that accelerates convergence of iterative solvers such as GMRES or CG. This is done by applying an approximation \(P^{-1}\) to \(A^{-1}\), yielding either:
+
+\[
+P^{-1} A x = P^{-1} b
+\quad\text{(left-preconditioning)}
+\]
+or
+\[
+A P^{-1} y = b,\quad \text{then } x = P^{-1} y
+\quad\text{(right-preconditioning)}
+\]
+
+Common preconditioner strategies include:
+\begin{itemize}
+  \item Sparse Approximate Inverse (SPAI)
+  \item Incomplete LU decomposition
+  \item Incomplete Cholesky decomposition
+  \item Splitting preconditioners
+  \item Algebraic multigrid methods
+\end{itemize}
+
+Analytic preconditioners—for instance, simplified PDE models—are also frequently used in scientific computing contexts.
+
+\subsection*{Sparse Approximate Inverse (SPAI)}
+The SPAI technique seeks a matrix \(M = P^{-1}\) that minimizes
+
+\[
+F(M) = \|I - A M\|_F,
+\]
+
+where the Frobenius norm is defined by \(\|A\|_F^2 = \sum_{i,j} |a_{ij}|^2\). The optimal (but impractical) solution is \(M = A^{-1}\). In practice, we generate a sequence of approximations \(M_k\) via a global minimal residual algorithm (Saad):
+
+\[
+\begin{aligned}
+C_k &= A M_k,\\
+G_k &= I - C_k,\\
+\alpha_k &= \frac{\mathrm{tr}(G_k^T A G_k)}{\|A G_k\|_F^2},\\
+M_{k+1} &= M_k + \alpha_k G_k.
+\end{aligned}
+\]
+
+Each iteration increases the density of \(M_k\), so sparse-drop strategies are essential in real-world implementations.
+
+\subsection*{SPAI Python Implementation}
+\begin{lstlisting}
+def spai(A, m):
+    """Perform m steps of the SPAI iteration."""
+    import numpy as np
+    from scipy.sparse import identity
+    from scipy.sparse.linalg import onenormest
+
+    n = A.shape[0]
+    ident = identity(n, format='csr')
+    alpha = 2 / onenormest(A @ A.T)
+    M = alpha * A
+
+    for _ in range(m):
+        C = A @ M
+        G = ident - C
+        AG = A @ G
+        trace = (G.T @ AG).diagonal().sum()
+        alpha = trace / np.linalg.norm(AG.data)**2
+        M = M + alpha * G
+
+    return M
+\end{lstlisting}
+
+\subsection*{Application Example}
+We apply SPAI to a shifted discrete 3-point finite-difference operator:
+
+\begin{lstlisting}
+import numpy as np
+from scipy.sparse import diags
+
+n = 1000
+data = [2.001*np.ones(n), -1*np.ones(n-1), -1*np.ones(n-1)]
+offsets = [0, 1, -1]
+A = diags(data, offsets, shape=(n, n), format='csr')
+\end{lstlisting}
+
+The condition number of \(A\) is high:
+
+\[
+\texttt{np.linalg.cond(A.todense())}
+\approx 3961.97
+\]
+
+After generating the preconditioner:
+
+\begin{lstlisting}
+M = spai(A, 50)
+\end{lstlisting}
+
+The condition number of the preconditioned system improves dramatically:
+
+\[
+\texttt{np.linalg.cond(A.todense() @ M.todense())}
+\approx 40.19
+\]
+
+\subsection*{Performance Comparison (CG Solver)}
+\begin{lstlisting}
+from scipy.sparse.linalg import cg
+import numpy as np
+import matplotlib.pyplot as plt
+
+b = np.ones(n)
+
+residuals = []
+callback = lambda x: residuals.append(np.linalg.norm(A @ x - b))
+_, _ = cg(A, b, callback=callback)
+
+residuals_prec = []
+callback_prec = lambda x: residuals_prec.append(
+    np.linalg.norm(A @ x - b) / np.linalg.norm(b))
+_, _ = cg(A, b, M=M, callback=callback_prec)
+
+plt.semilogy(residuals, 'k--')
+plt.semilogy(residuals_prec, 'b--')
+plt.ylabel('Relative residual')
+plt.legend(['No preconditioning', 'SPAI'], loc='lower center')
+plt.show()
+\end{lstlisting}
+
+While convergence accelerates with SPAI, keep in mind setting up the preconditioner is not free—it may cost significant time, so total runtime should guide practical choices.
+
+\subsection*{A Note on Preconditioned Conjugate Gradient}
+Passing the preconditioner as a matrix to CG is valid if \(P\) is symmetric positive definite—as it is in this example. For deeper details on preconditioned CG, consult Saad’s text *Iterative Methods for Sparse Linear Systems*.
+
+\section*{Summary}
+Preconditioning modulates the eigenvalue spread to improve solver performance. The SPAI method drastically improves condition numbers and convergence rates in idealized settings, but must be balanced with preconditioner setup cost and sparsity maintenance.
+
+\chapter{Sparse Direct Solvers}
+
+Sparse direct solvers address large sparse linear systems by modifying traditional dense techniques—like LU decomposition—to exploit sparsity efficiently.
+
+\subsection*{Solving Dense Linear Systems}
+Dense systems often rely on an LU decomposition of the form
+\[
+PA = LU,
+\]
+where \(P\) is a permutation matrix, \(L\) is lower triangular with unit diagonal entries, and \(U\) is upper triangular. When the matrix has constant bandwidth (e.g., arising from PDE discretisation along 1D or 2D grids), LU decomposition can achieve \(O(n)\) complexity, provided operations on zero elements are avoided.
+
+\subsection*{Matrices with Arrow Structure}
+Consider an \(n \times n\) matrix with identity plus dense final row and column (“arrow structure”). Performing LU decomposition on such a matrix is efficient if blocks are properly ordered. However, a simple row/column permutation could destroy sparseness, turning the \(L\) and \(U\) factors completely dense—demonstrating the importance of matrix ordering.
+
+\subsection*{Reordering Methods for Sparse Gaussian Elimination}
+To prevent fill-in during LU, heuristic reordering techniques are essential. Popular approaches include:
+\begin{itemize}
+  \item Cuthill–McKee and Reverse Cuthill–McKee
+  \item Minimum degree algorithms
+\end{itemize}
+Most sparse solver libraries apply reordering as a preprocessing step.
+
+\subsection*{Limits of Sparse Direct Solvers}
+Sparse direct solvers remain effective for 1D and many 2D problems—assuming good ordering limits fill-in. However, 3D problems often exhibit complex connectivity patterns where fill-in and memory use escalate rapidly, reducing feasibility.
+
+\subsection*{Incomplete LU Decomposition (ILU)}
+When a full LU is too costly, \emph{incomplete LU} (ILU) can serve as a preconditioner:  
+Fill-in is limited via a dropout strategy, though this may yield singular approximations.
+
+\begin{lstlisting}
+from scipy.sparse.linalg import spilu, LinearOperator, gmres
+
+N = 100
+A, f = discretise_poisson(N)
+
+spilu_precond = spilu(A, fill_factor=20, drop_rule='dynamic')
+M = LinearOperator(matvec=spilu_precond.solve,
+                   shape=(N**2, N**2), dtype=A.dtype)
+
+res1, res2 = [], []
+callback1 = lambda res: res1.append(res)
+callback2 = lambda res: res2.append(res)
+
+x1, _ = gmres(A, f, callback=callback1, callback_type='pr_norm')
+x2, _ = gmres(A, f, M=M, callback=callback2, callback_type='pr_norm')
+\end{lstlisting}
+
+A plot of relative residuals shows significantly faster convergence when using ILU as a preconditioner.
+
+\section*{Summary}
+
+Sparse direct solvers extend classic LU decomposition by integrating reordering and fill-in control. While highly effective for structured problems (especially in lower dimensions), they struggle with more complex sparsity patterns. Techniques like ILU help bridge gaps, especially when used in conjunction with iterative methods.
+
+\chapter{Using petsc4py for sparse linear systems}
+
+Manual download
+
+\chapter{Multigrid Methods}
+
+Manual download
 
 \end{document}
